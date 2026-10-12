@@ -90,17 +90,20 @@ class WaveshareDisplay(AbstractDisplay):
 
         self.bi_color_display = len(display_args_spec.args) > 2
 
+        # PATCH: partial refresh tracking
+        self._last_image = None
+        self._partial_count = 0
+        self._partial_max = 5  # Force full refresh every 5 partial refreshes
+
         # update the resolution directly from the loaded device context
         if not self.device_config.get_config("resolution"):
-            w, h = int(self.epd_display.width), int(self.epd_display.height)
-            resolution = [w, h] if w >= h else [h, w]
-            self.device_config.update_value(
-                "resolution",
-                resolution,
-                write=True)
+            w, h = int(self.epd_display.width) * 2, int(self.epd_display.height)
+            resolution = [w, h]
+            self.device_config.update_value("resolution", resolution, write=True)
 
 
     def display_image(self, image, image_settings=[]):
+        image = image.rotate(180)  # PATCH: HAT mounted 180deg
         
         """
         Displays an image on the Waveshare display.
@@ -122,6 +125,48 @@ class WaveshareDisplay(AbstractDisplay):
 
         # Assume device was in sleep mode.
         self.epd_display_init()
+
+        # PATCH: partial refresh logic - skip Clear and use display_partial if image mostly same
+        try:
+            if self._last_image is not None and self._last_image.size == image.size:
+                from PIL import ImageChops
+                diff = ImageChops.difference(self._last_image.convert("RGB"), image.convert("RGB"))
+                bbox = diff.getbbox()
+
+                if bbox is None:
+                    logger.info("Image unchanged, skipping refresh entirely (0 SPI writes)")
+                    return
+
+                x_start, y_start, x_end, y_end = bbox
+                bbox_area = (x_end - x_start) * (y_end - y_start)
+                total_area = image.size[0] * image.size[1]
+                ratio = bbox_area / total_area if total_area > 0 else 1.0
+
+                # Use partial if: small bbox (<30%) AND on single CS, AND not exceeded max partial count
+                use_partial = (
+                    ratio < 0.30 and
+                    (x_end <= self.epd_display.width // 2 or x_start >= self.epd_display.width // 2) and
+                    self._partial_count < self._partial_max
+                )
+
+                if use_partial:
+                    logger.info(f"Partial refresh: bbox={bbox} ratio={ratio:.2%} count={self._partial_count+1}/{self._partial_max}")
+                    buf = self.epd_display.getbuffer(image)
+                    self.epd_display.display_partial(buf, x_start, y_start, x_end, y_end)
+                    self._partial_count += 1
+                    self._last_image = image.copy()
+                    return
+                else:
+                    if self._partial_count >= self._partial_max:
+                        logger.info(f"Forcing full refresh: partial_count={self._partial_count} reached max")
+                    else:
+                        logger.info(f"Full refresh: ratio={ratio:.2%} too large or crosses CS")
+                    self._partial_count = 0
+            else:
+                logger.info("Full refresh: no previous image tracked")
+                self._partial_count = 0
+        except Exception as e:
+            logger.warning(f"Partial refresh logic failed ({e}), falling back to full refresh")
 
         # Clear residual pixels before updating the image.
         self.epd_display.Clear()

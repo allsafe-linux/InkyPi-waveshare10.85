@@ -1,0 +1,20 @@
+{% extends "plugin.html" %}
+
+{% block content %}
+
+<div class="meeting-container">
+    {% for field in fields %}
+    <div class="meeting-field">
+        <div class="meeting-value"
+             style="font-family: '{{ field.font_family }}';
+                    font-size: {{ field.font_size }}px;
+                    font-weight: {{ field.font_weight }};
+                    color: {{ color_hex[field.color] }};
+                    text-align: {{ field.align }};">
+            {{ field.value }}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+{% endblock %}

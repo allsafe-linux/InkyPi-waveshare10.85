@@ -1,0 +1,102 @@
+<div class="form-group">
+    <label for="mode" class="form-label">显示模式</label>
+    <select id="mode" name="mode" class="form-input" required>
+        <option value="nameplate">会议座签（姓名牌）</option>
+        <option value="meeting">会议信息</option>
+    </select>
+</div>
+
+<div id="fields-container">
+    <!-- JS will populate fields based on selected mode -->
+</div>
+
+<script>
+const MODE_PRESETS = {{ mode_presets | tojson }};
+const FONT_FAMILIES = {{ font_families | tojson }};
+const COLORS = {{ colors | tojson }};
+const ALIGNMENTS = {{ alignments | tojson }};
+
+function renderFields(mode) {
+    const preset = MODE_PRESETS[mode] || MODE_PRESETS.nameplate;
+    const container = document.getElementById('fields-container');
+    container.innerHTML = '';
+
+    preset.forEach((spec) => {
+        const id = spec.id;
+        const fieldId = `field_${id}`;
+        const sizeId = `size_${id}`;
+        const fontId = `font_${id}`;
+        const weightId = `weight_${id}`;
+        const colorId = `color_${id}`;
+        const alignId = `align_${id}`;
+
+        const fieldValue = (pluginSettings && pluginSettings[fieldId]) || '';
+        const fieldSize = (pluginSettings && pluginSettings[sizeId]) || spec.default_size;
+        const fieldFont = (pluginSettings && pluginSettings[fontId]) || spec.default_family;
+        const fieldWeight = (pluginSettings && pluginSettings[weightId]) || spec.default_weight;
+        const fieldColor = (pluginSettings && pluginSettings[colorId]) || spec.default_color;
+        const fieldAlign = (pluginSettings && pluginSettings[alignId]) || spec.default_align;
+
+        const html = `
+        <div class="form-group" style="border: 1px solid #ddd; padding: 12px; margin-bottom: 12px; border-radius: 4px;">
+            <label class="form-label" style="font-weight: bold;">${spec.label}</label>
+            <input type="text" id="${fieldId}" name="${fieldId}" value="${fieldValue}" placeholder="输入${spec.label}..." class="form-input" style="margin-bottom: 8px;">
+
+            <div style="display: flex; gap: 28px; flex-wrap: wrap; align-items: end; padding: 10px 0;">
+                <div style="flex: 1; min-width: 110px; margin-right: 10px;">
+                    <label class="form-label-sm" style="margin-bottom: 10px; display: block;">字体</label>
+                    <select id="${fontId}" name="${fontId}" class="form-input form-input-sm" style="padding: 10px 12px;">
+                        ${Object.entries(FONT_FAMILIES).map(([k, v]) =>
+                            `<option value="${k}" ${fieldFont === k ? 'selected' : ''}>${v}</option>`
+                        ).join('')}
+                    </select>
+                </div>
+
+                <div style="width: 85px; margin-right: 10px;">
+                    <label class="form-label-sm" style="margin-bottom: 10px; display: block;">
+                        字号
+                        <span style="color: #999; font-weight: normal; font-size: 0.85em;">(建议≤${spec.max_size}px)</span>
+                    </label>
+                    <input type="number" id="${sizeId}" name="${sizeId}" value="${fieldSize}" min="10" max="${spec.max_size}" step="2" class="form-input form-input-sm" style="padding: 10px 12px;">
+                </div>
+
+                <div style="width: 90px; margin-right: 10px;">
+                    <label class="form-label-sm" style="margin-bottom: 10px; display: block;">粗体</label>
+                    <select id="${weightId}" name="${weightId}" class="form-input form-input-sm" style="padding: 10px 12px;">
+                        <option value="normal" ${fieldWeight === 'normal' ? 'selected' : ''}>正常</option>
+                        <option value="bold" ${fieldWeight === 'bold' ? 'selected' : ''}>粗体</option>
+                    </select>
+                </div>
+
+                <div style="width: 95px; margin-right: 10px;">
+                    <label class="form-label-sm" style="margin-bottom: 10px; display: block;">颜色</label>
+                    <select id="${colorId}" name="${colorId}" class="form-input form-input-sm" style="padding: 10px 12px;">
+                        ${Object.entries(COLORS).map(([k, v]) =>
+                            `<option value="${k}" ${fieldColor === k ? 'selected' : ''}>${k}</option>`
+                        ).join('')}
+                    </select>
+                </div>
+
+                <div style="width: 100px;">
+                    <label class="form-label-sm" style="margin-bottom: 10px; display: block;">对齐</label>
+                    <select id="${alignId}" name="${alignId}" class="form-input form-input-sm" style="padding: 10px 12px;">
+                        ${Object.entries(ALIGNMENTS).map(([k, v]) =>
+                            `<option value="${k}" ${fieldAlign === k ? 'selected' : ''}>${v}</option>`
+                        ).join('')}
+                    </select>
+                </div>
+            </div>
+        </div>`;
+        container.insertAdjacentHTML('beforeend', html);
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const modeSelect = document.getElementById('mode');
+    const initialMode = (pluginSettings && pluginSettings.mode) || 'nameplate';
+    modeSelect.value = initialMode;
+    renderFields(initialMode);
+
+    modeSelect.addEventListener('change', (e) => renderFields(e.target.value));
+});
+</script>

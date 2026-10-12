@@ -1,0 +1,466 @@
+# /*****************************************************************************
+# * | File        :	  epd12in48.py
+# * | Author      :   Waveshare electrices
+# * | Function    :   Hardware underlying interface
+# * | Info        :
+# *----------------
+# * |	This version:   V1.0
+# * | Date        :   2019-11-01
+# * | Info        :   
+# ******************************************************************************/
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documnetation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to  whom the Software is
+# furished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS OR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+#
+import time
+import logging
+logger = logging.getLogger(__name__)
+import epdconfig
+
+import PIL
+from PIL import Image
+import io
+
+EPD_WIDTH       = 1360//2
+
+# Partial refresh LUT for SSD1681 (mode 2, conservative)
+PARTIAL_LUT = [
+    0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+]
+EPD_HEIGHT      = 480
+
+class EPD():
+    def __init__(self):
+        self.width = EPD_WIDTH
+        self.height = EPD_HEIGHT
+        self.BLACK  = 0x000000   #   00  BGR
+        self.WHITE  = 0xffffff   #   01
+        self.YELLOW = 0x00ffff   #   10
+        self.RED    = 0x0000ff   #   11
+        
+        self.EPD_CS_M_PIN  = epdconfig.EPD_CS_M_PIN
+        self.EPD_CS_S_PIN  = epdconfig.EPD_CS_S_PIN
+
+        self.EPD_DC_PIN  = epdconfig.EPD_DC_PIN
+        self.EPD_RST_PIN  = epdconfig.EPD_RST_PIN
+        self.EPD_BUSY_PIN  = epdconfig.EPD_BUSY_PIN
+        self.EPD_PWR_PIN  = epdconfig.EPD_PWR_PIN
+
+
+    
+    def Reset(self):
+        epdconfig.digital_write(self.EPD_RST_PIN, 1)
+        epdconfig.delay_ms(200) 
+        epdconfig.digital_write(self.EPD_RST_PIN, 0)         # module reset
+        epdconfig.delay_ms(2)
+        epdconfig.digital_write(self.EPD_RST_PIN, 1)
+        epdconfig.delay_ms(200)   
+
+    def CS_ALL(self, Value):
+        epdconfig.digital_write(self.EPD_CS_M_PIN, Value)
+        epdconfig.digital_write(self.EPD_CS_S_PIN, Value)
+
+    def SendCommand(self, Command):
+        epdconfig.digital_write(self.EPD_DC_PIN, 0)
+        epdconfig.spi_writebyte(Command)
+
+    def SendData(self, Data):
+        epdconfig.digital_write(self.EPD_DC_PIN, 1)
+        epdconfig.spi_writebyte(Data)
+    
+    def SendData2(self, buf, Len):
+        epdconfig.digital_write(self.EPD_DC_PIN, 1)
+        epdconfig.spi_writebyte2(buf, Len)
+
+    def ReadBusyH(self):
+        print("e-Paper busy H")
+        epdconfig.delay_ms(100)
+        while(epdconfig.digital_read(self.EPD_BUSY_PIN) == 0):      # 0: idle, 1: busy
+            epdconfig.delay_ms(20)
+        print("e-Paper busy release")
+
+    def TurnOnDisplay(self):
+        self.CS_ALL(0)
+        self.SendCommand(0x12)
+        self.SendData(0x00)
+        self.CS_ALL(1)
+        self.ReadBusyH()
+
+    def Init(self):
+        print("EPD init...")
+        epdconfig.module_init()
+        
+        
+        self.Reset() 
+        self.ReadBusyH()
+
+        self.CS_ALL(0)
+
+        self.SendCommand(0x4D)
+        self.SendData(0x78)	
+
+        self.SendCommand(0xE0)
+        self.SendData(0x01)
+
+        self.SendCommand(0xE5)
+        self.SendData(0x08)
+
+        self.SendCommand(0xA2)
+        self.SendData(0x01)
+
+        self.SendCommand(0x00)
+        self.SendData(0x2F)
+        self.SendData(0x21)
+
+        self.SendCommand(0xA2)
+        self.SendData(0x02)
+
+        self.SendCommand(0x00)
+        self.SendData(0x2F)	
+        self.SendData(0x21)	
+
+        self.SendCommand(0xA2)
+        self.SendData(0x00)
+
+        self.SendCommand(0x01)
+        self.SendData(0x07)	
+        self.SendData(0x00)	
+
+        self.SendCommand(0x06)
+        self.SendData(0x0d)
+        self.SendData(0x12)
+        self.SendData(0x30)
+        self.SendData(0x20)
+        self.SendData(0x19)
+        self.SendData(0x3D)
+        self.SendData(0x0C)
+
+        self.SendCommand(0x30)
+        self.SendData(0x08)
+
+        self.SendCommand(0x50)
+        self.SendData(0x37)	
+
+        self.SendCommand(0x61)
+        self.SendData(int(self.width/256))
+        self.SendData(self.width%256)
+        self.SendData(int(self.height/256))
+        self.SendData(self.height%256)
+
+        self.SendCommand(0x65)
+        self.SendData(0x00)	
+        self.SendData(0x00)	
+        self.SendData(0x00)	
+        self.SendData(0x00)	
+
+        self.SendCommand(0xE3)
+        self.SendData(0x88)  
+
+        self.SendCommand(0xE9)
+        self.SendData(0x01)  
+
+        self.SendCommand(0xB8)
+        self.SendData(0xB5) 
+        epdconfig.delay_ms(200)  
+
+        self.SendCommand(0x04)
+        epdconfig.delay_ms(500)  
+        self.ReadBusyH()
+        self.CS_ALL(1)
+
+    def Init_Fast(self):
+        print("EPD init...")
+        epdconfig.module_init()
+        
+        self.Reset() 
+        self.ReadBusyH()
+
+        self.CS_ALL(0)
+
+        self.SendCommand(0x4D)
+        self.SendData(0x78)	
+
+        self.SendCommand(0xE0)
+        self.SendData(0x01)
+
+        self.SendCommand(0xE5)
+        self.SendData(0x08)
+
+        self.SendCommand(0xA2)
+        self.SendData(0x01)
+
+        self.SendCommand(0x00)
+        self.SendData(0x2F)
+        self.SendData(0x21)
+
+        self.SendCommand(0xA2)
+        self.SendData(0x02)
+
+        self.SendCommand(0x00)
+        self.SendData(0x2F)	
+        self.SendData(0x21)
+
+        self.SendCommand(0xA2)
+        self.SendData(0x00)
+
+        self.SendCommand(0x01)
+        self.SendData(0x07)	
+        self.SendData(0x00)
+
+        self.SendCommand(0x06)
+        self.SendData(0x0d)
+        self.SendData(0x12)
+        self.SendData(0x30)
+        self.SendData(0x20)
+        self.SendData(0x19)
+        self.SendData(0x3D)
+        self.SendData(0x0C)
+
+        self.SendCommand(0x30)
+        self.SendData(0x08)
+
+        self.SendCommand(0x50)
+        self.SendData(0x37)	
+
+        self.SendCommand(0x61)
+        self.SendData(int(self.width/256))
+        self.SendData(self.width%256)
+        self.SendData(int(self.height/256))
+        self.SendData(self.height%256)
+
+        self.SendCommand(0x65)
+        self.SendData(0x00)	
+        self.SendData(0x00)	
+        self.SendData(0x00)	
+        self.SendData(0x00)	
+
+        self.SendCommand(0xE3)
+        self.SendData(0x88)  
+
+        self.SendCommand(0xE9)
+        self.SendData(0x01)  
+
+        self.SendCommand(0xB8)
+        self.SendData(0xB5) 
+        epdconfig.delay_ms(200)  
+
+        self.SendCommand(0x04)
+        epdconfig.delay_ms(500)  
+        self.ReadBusyH()
+
+        #Fast
+        self.SendCommand(0xE0)
+        self.SendData(0x03);    			
+        self.SendCommand(0xE6)
+        self.SendData(92);
+        self.SendCommand(0xA5)		
+        self.SendData(0x00)
+        self.ReadBusyH() 
+            
+        self.CS_ALL(1)
+    
+    def getbuffer(self, image):
+        # Create a pallette with the 4 colors supported by the panel
+        pal_image = Image.new("P", (1,1))
+        pal_image.putpalette( (0,0,0,  255,255,255,  255,255,0,   255,0,0) + (0,0,0)*252)
+
+        # Check if we need to rotate the image
+        imwidth, imheight = image.size
+        if(imwidth == self.width*2 and imheight == self.height):
+            image_temp = image
+        elif(imwidth == self.height and imheight == self.width*2):
+            image_temp = image.rotate(90, expand=True)
+        else:
+            logger.warning("Invalid image dimensions: %d x %d, expected %d x %d" % (imwidth, imheight, self.width*2, self.height))
+            image_temp = image.resize((self.width*2, self.height)) if image.mode != "RGB" else image.resize((self.width*2, self.height))
+
+        # Convert the soruce image to the 4 colors, dithering if needed
+        image_4color = image_temp.convert("RGB").quantize(palette=pal_image)
+        buf_4color = bytearray(image_4color.tobytes('raw'))
+
+        # into a single byte to transfer to the panel
+        if (self.width*2) % 4 == 0 :
+            Width = (self.width*2) // 4
+        else :
+            Width = (self.width*2) // 4 + 1
+        Height = self.height 
+        buf = [0x00] * int(Width * Height)
+        idx = 0
+        for j in range(0, Height):
+            for i in range(0, Width):
+                    buf[i + j * Width] = (buf_4color[idx] << 6) + (buf_4color[idx+1] << 4) + (buf_4color[idx+2] << 2) + buf_4color[idx+3]
+                    idx = idx + 4
+        return buf
+    
+    def display_partial(self, image, x_start, y_start, x_end, y_end):
+        """
+        Partial refresh on the changed region.
+        Only supports single-CS region (CS_M or CS_S, not both).
+        Falls back to full refresh if region crosses CS boundary.
+        """
+        # Convert image to RGB and quantize to 4 colors
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        pal_image = Image.new("P", (1, 1))
+        pal_image.putpalette((0, 0, 0, 255, 255, 255, 255, 255, 0, 255, 0, 0) + (0, 0, 0) * 252)
+        image_4color = image.quantize(palette=pal_image)
+        buf_4color = bytearray(image_4color.tobytes('raw'))
+
+        # Pack into display buffer format
+        Width = int((self.width * 2) / 4) if (self.width * 2) % 4 == 0 else int((self.width * 2) / 4) + 1
+        Height = self.height
+        buf = [0x00] * int(Width * Height)
+        for j in range(Height):
+            for i in range(Width):
+                idx = (i + j * Width) * 4
+                if idx + 3 < len(buf_4color):
+                    buf[i + j * Width] = (buf_4color[idx] << 6) + (buf_4color[idx + 1] << 4) + (buf_4color[idx + 2] << 2) + buf_4color[idx + 3]
+
+        # Clamp coordinates
+        x_start = max(0, min(int(x_start), self.width))
+        x_end = max(x_start, min(int(x_end), self.width))
+        y_start = max(0, min(int(y_start), self.height))
+        y_end = max(y_start, min(int(y_end), self.height))
+
+        # Determine which CS chip
+        cs_mid = self.width // 2  # 680
+        if x_end <= cs_mid:
+            cs_pin = self.EPD_CS_M_PIN
+            cs_byte_offset = 0
+            cs_local_x_start = x_start
+            cs_local_x_end = x_end
+        elif x_start >= cs_mid:
+            cs_pin = self.EPD_CS_S_PIN
+            cs_byte_offset = cs_mid // 4  # 170
+            cs_local_x_start = x_start - cs_mid
+            cs_local_x_end = x_end - cs_mid
+        else:
+            # Cross-CS: fallback to full refresh
+            logger.warning("Partial region crosses CS boundary, falling back to full refresh")
+            self.display(image)
+            return
+
+        # Convert pixel coords to byte coords (within this CS)
+        cs_byte_count = cs_mid // 4  # 170 bytes per CS per row
+        cs_x_start_byte = (cs_local_x_start // 4 // 2) * 2  # align to 2-byte
+        cs_x_end_byte = ((cs_local_x_end + 3) // 4 // 2 + 1) * 2  # align
+        cs_x_end_byte = min(cs_x_end_byte, cs_byte_count)
+
+        if cs_x_end_byte <= cs_x_start_byte:
+            logger.warning("Partial region too small, skipping")
+            return
+
+        n_bytes_per_row = cs_x_end_byte - cs_x_start_byte
+
+        # Reset and init for partial refresh
+        self.Reset()
+        self.ReadBusyH()
+
+        # Load partial refresh LUT
+        self.SendCommand(0x32)
+        for val in self.PARTIAL_LUT:
+            self.SendData(val)
+
+        # Border waveform
+        self.SendCommand(0x3C)
+        self.SendData(0x80)
+
+        # Activate CS chip
+        epdconfig.digital_write(cs_pin, 0)
+
+        # Set RAM X window (address in groups of 8 pixels = 2 bytes)
+        self.SendCommand(0x44)
+        self.SendData(cs_x_start_byte // 2)
+        self.SendData((cs_x_end_byte // 2) - 1)
+
+        # Set RAM Y window
+        self.SendCommand(0x45)
+        self.SendData(y_start)
+        self.SendData(y_end - 1)
+
+        # Set RAM X counter
+        self.SendCommand(0x4E)
+        self.SendData(cs_x_start_byte // 2)
+
+        # Set RAM Y counter
+        self.SendCommand(0x4F)
+        self.SendData(y_start)
+
+        # Write RAM data (only for changed region)
+        self.SendCommand(0x24)
+        for y in range(y_start, y_end):
+            row_offset = y * Width + cs_byte_offset + cs_x_start_byte
+            self.SendData2(buf[row_offset: row_offset + n_bytes_per_row], n_bytes_per_row)
+
+        # Deactivate CS
+        self.CS_ALL(1)
+
+        # Trigger partial display update
+        self.SendCommand(0x22)
+        self.SendData(0xFF)  # Mode: Enable Clock + Analog
+        self.SendCommand(0x20)
+        self.ReadBusyH()
+
+    def Clear(self, color=0x55):
+        epdconfig.digital_write(self.EPD_CS_M_PIN, 0)
+        self.SendCommand(0x10)
+        for i in range(self.height):
+            self.SendData2([color]* int(self.width/2), int(self.width/2))
+        self.CS_ALL(1)
+        epdconfig.digital_write(self.EPD_CS_S_PIN, 0)
+        self.SendCommand(0x10)
+        for i in range(self.height):
+            self.SendData2([color]* int(self.width/2), int(self.width/2))
+        self.CS_ALL(1)
+
+        self.TurnOnDisplay()
+
+    def display(self, image):
+        Width =int(self.width / 4)
+        Width1 =int(self.width / 2)
+
+        epdconfig.digital_write(self.EPD_CS_M_PIN, 0)
+        self.SendCommand(0x10)
+        for i in range(self.height):
+            self.SendData2(image[i * Width1 : i * Width1+Width], Width)
+        self.CS_ALL(1)
+
+        epdconfig.digital_write(self.EPD_CS_S_PIN, 0)
+        self.SendCommand(0x10)
+        for i in range(self.height):
+            self.SendData2(image[i * Width1+Width : i * Width1+Width1], Width)
+        self.CS_ALL(1)
+
+        self.TurnOnDisplay()
+
+    def sleep(self):
+        self.CS_ALL(0)
+        self.SendCommand(0x02) # POWER_OFF
+        self.SendData(0X00)
+        epdconfig.delay_ms(100)
+        
+        self.SendCommand(0x07) # DEEP_SLEEP
+        self.SendData(0XA5)
+        self.CS_ALL(1)
+
+        epdconfig.delay_ms(2000)
+        epdconfig.module_exit()
+### END OF FILE ###
+
+
