@@ -37,15 +37,10 @@ import io
 
 EPD_WIDTH       = 1360//2
 
-# Partial refresh LUT for SSD1681 (mode 2, conservative)
-PARTIAL_LUT = [
-    0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-]
 EPD_HEIGHT      = 480
 
 class EPD():
+
     def __init__(self):
         self.width = EPD_WIDTH
         self.height = EPD_HEIGHT
@@ -308,115 +303,6 @@ class EPD():
                     idx = idx + 4
         return buf
     
-    def display_partial(self, image, x_start, y_start, x_end, y_end):
-        """
-        Partial refresh on the changed region.
-        Only supports single-CS region (CS_M or CS_S, not both).
-        Falls back to full refresh if region crosses CS boundary.
-        """
-        # Convert image to RGB and quantize to 4 colors
-        if image.mode != "RGB":
-            image = image.convert("RGB")
-        pal_image = Image.new("P", (1, 1))
-        pal_image.putpalette((0, 0, 0, 255, 255, 255, 255, 255, 0, 255, 0, 0) + (0, 0, 0) * 252)
-        image_4color = image.quantize(palette=pal_image)
-        buf_4color = bytearray(image_4color.tobytes('raw'))
-
-        # Pack into display buffer format
-        Width = int((self.width * 2) / 4) if (self.width * 2) % 4 == 0 else int((self.width * 2) / 4) + 1
-        Height = self.height
-        buf = [0x00] * int(Width * Height)
-        for j in range(Height):
-            for i in range(Width):
-                idx = (i + j * Width) * 4
-                if idx + 3 < len(buf_4color):
-                    buf[i + j * Width] = (buf_4color[idx] << 6) + (buf_4color[idx + 1] << 4) + (buf_4color[idx + 2] << 2) + buf_4color[idx + 3]
-
-        # Clamp coordinates
-        x_start = max(0, min(int(x_start), self.width))
-        x_end = max(x_start, min(int(x_end), self.width))
-        y_start = max(0, min(int(y_start), self.height))
-        y_end = max(y_start, min(int(y_end), self.height))
-
-        # Determine which CS chip
-        cs_mid = self.width // 2  # 680
-        if x_end <= cs_mid:
-            cs_pin = self.EPD_CS_M_PIN
-            cs_byte_offset = 0
-            cs_local_x_start = x_start
-            cs_local_x_end = x_end
-        elif x_start >= cs_mid:
-            cs_pin = self.EPD_CS_S_PIN
-            cs_byte_offset = cs_mid // 4  # 170
-            cs_local_x_start = x_start - cs_mid
-            cs_local_x_end = x_end - cs_mid
-        else:
-            # Cross-CS: fallback to full refresh
-            logger.warning("Partial region crosses CS boundary, falling back to full refresh")
-            self.display(image)
-            return
-
-        # Convert pixel coords to byte coords (within this CS)
-        cs_byte_count = cs_mid // 4  # 170 bytes per CS per row
-        cs_x_start_byte = (cs_local_x_start // 4 // 2) * 2  # align to 2-byte
-        cs_x_end_byte = ((cs_local_x_end + 3) // 4 // 2 + 1) * 2  # align
-        cs_x_end_byte = min(cs_x_end_byte, cs_byte_count)
-
-        if cs_x_end_byte <= cs_x_start_byte:
-            logger.warning("Partial region too small, skipping")
-            return
-
-        n_bytes_per_row = cs_x_end_byte - cs_x_start_byte
-
-        # Reset and init for partial refresh
-        self.Reset()
-        self.ReadBusyH()
-
-        # Load partial refresh LUT
-        self.SendCommand(0x32)
-        for val in self.PARTIAL_LUT:
-            self.SendData(val)
-
-        # Border waveform
-        self.SendCommand(0x3C)
-        self.SendData(0x80)
-
-        # Activate CS chip
-        epdconfig.digital_write(cs_pin, 0)
-
-        # Set RAM X window (address in groups of 8 pixels = 2 bytes)
-        self.SendCommand(0x44)
-        self.SendData(cs_x_start_byte // 2)
-        self.SendData((cs_x_end_byte // 2) - 1)
-
-        # Set RAM Y window
-        self.SendCommand(0x45)
-        self.SendData(y_start)
-        self.SendData(y_end - 1)
-
-        # Set RAM X counter
-        self.SendCommand(0x4E)
-        self.SendData(cs_x_start_byte // 2)
-
-        # Set RAM Y counter
-        self.SendCommand(0x4F)
-        self.SendData(y_start)
-
-        # Write RAM data (only for changed region)
-        self.SendCommand(0x24)
-        for y in range(y_start, y_end):
-            row_offset = y * Width + cs_byte_offset + cs_x_start_byte
-            self.SendData2(buf[row_offset: row_offset + n_bytes_per_row], n_bytes_per_row)
-
-        # Deactivate CS
-        self.CS_ALL(1)
-
-        # Trigger partial display update
-        self.SendCommand(0x22)
-        self.SendData(0xFF)  # Mode: Enable Clock + Analog
-        self.SendCommand(0x20)
-        self.ReadBusyH()
-
     def Clear(self, color=0x55):
         epdconfig.digital_write(self.EPD_CS_M_PIN, 0)
         self.SendCommand(0x10)

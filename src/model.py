@@ -3,6 +3,11 @@ import json
 import logging
 from datetime import datetime, timedelta
 
+# Minimum refresh interval (seconds) per Waveshare FAQ recommendation.
+# Refreshing more often can damage the e-paper panel.
+# See: "刷新频率: 建议设置电子墨水屏的刷新间隔至少为 180 秒"
+MIN_REFRESH_INTERVAL_SECONDS = 180  # 3 minutes
+
 logger = logging.getLogger(__name__)
 
 class RefreshInfo:
@@ -302,8 +307,12 @@ class PluginInstance:
         # Check for interval-based refresh
         if "interval" in self.refresh:
             interval = self.refresh.get("interval")
-            if interval and (current_time - latest_refresh_dt) >= timedelta(seconds=interval):
-                return True
+            if interval:
+                # PATCH: enforce minimum refresh interval per Waveshare FAQ
+                # (refresh at least every 180s to protect the e-paper panel)
+                effective_interval = max(interval, MIN_REFRESH_INTERVAL_SECONDS)
+                if (current_time - latest_refresh_dt) >= timedelta(seconds=effective_interval):
+                    return True
 
         # Check for scheduled refresh (HH:MM format)
         if "scheduled" in self.refresh:

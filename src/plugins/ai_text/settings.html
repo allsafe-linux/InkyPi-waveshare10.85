@@ -1,41 +1,78 @@
 <div class="form-group">
-    <div class="form-group nowrap">
-        <label for="title" class="form-label">Title:</label>
-        <input type="text" id="title" name="title" placeholder="Type something..." required class="form-input">
-    </div>
-
-    <!-- Text Model Dropdown -->
-    <div class="form-group nowrap">
-        <label for="textModel" class="form-label">Text Model:</label>
-        <select id="textModel" name="textModel" class="form-input">
-            <option value="gpt-4o-mini">GPT-4o mini</option>
-            <option value="gpt-4o">GPT-4o</option>
-            <option value="gpt-4.1">GPT-4.1</option>
-            <option value="gpt-4.1-mini">GPT-4.1 mini</option>
-            <option value="gpt-4.1-nano">GPT-4.1 nano</option>
-            <option value="gpt-5">GPT-5</option>
-            <option value="gpt-5-mini">GPT-5 mini</option>
-            <option value="gpt-5-nano">GPT-5 nano</option>
-        </select>
-    </div>
+    <label for="provider" class="form-label">Provider</label>
+    <select id="provider" name="provider" class="form-input" required>
+        {% for provider_id, display_name in providers %}
+        <option value="{{ provider_id }}" {% if pluginSettings and pluginSettings.provider == "{{ provider_id }}" %}selected{% elif not pluginSettings and provider_id == default_provider %}selected{% endif %}>{{ display_name }}</option>
+        {% endfor %}
+    </select>
 </div>
 
 <div class="form-group">
-    <label for="textPrompt" class="form-label">Text Prompt:</label>
+    <label for="textModel" class="form-label">Text Model</label>
+    <select id="textModel" name="textModel" class="form-input" required>
+        {% for model in text_models %}
+        <option value="{{ model }}" {% if pluginSettings and pluginSettings.textModel == "{{ model }}" %}selected{% endif %}>{{ model }}</option>
+        {% endfor %}
+    </select>
+</div>
+
+<div class="form-group">
+    <label for="textPrompt" class="form-label">Text Prompt</label>
     <input type="text" id="textPrompt" name="textPrompt" placeholder="Type something..." required class="form-input">
 </div>
 
-<script>
+<div class="form-group">
+    <details>
+        <summary style="cursor: pointer; color: #999; font-size: 0.9em;">Advanced Settings (optional)</summary>
+        <div style="margin-top: 8px; padding: 8px; background: #f5f5f5; border-radius: 4px;">
+            <div class="form-group">
+                <label for="apiKeyEnv" class="form-label-sm">API Key Env Var Name</label>
+                <input type="text" id="apiKeyEnv" name="apiKeyEnv" placeholder="Default: see provider" class="form-input form-input-sm">
+                <small style="color: #666;">Leave empty to use the default env var for the selected provider.</small>
+            </div>
+            <div class="form-group">
+                <label for="customBaseUrl" class="form-label-sm">Custom Base URL</label>
+                <input type="text" id="customBaseUrl" name="customBaseUrl" placeholder="Default: see provider" class="form-input form-input-sm">
+                <small style="color: #666;">Leave empty to use the provider\'s default API endpoint.</small>
+            </div>
+        </div>
+    </details>
+</div>
 
-    // populate form values from plugin settings
-    document.addEventListener('DOMContentLoaded', () => {        
-        if (loadPluginSettings) {
-            // Populate text inputs
-            document.getElementById('title').value = pluginSettings.title || '';
-            document.getElementById('textPrompt').value = pluginSettings.textPrompt || '';
-            
-            // Populate text model
-            document.getElementById('textModel').value = pluginSettings.textModel;
-        }
+<script>
+const ALL_TEXT_MODELS = {{ all_text_models_json | safe }};
+
+function updateTextModels() {
+    const providerSelect = document.getElementById('provider');
+    const modelSelect = document.getElementById('textModel');
+    if (!providerSelect || !modelSelect) return;
+    const provider = providerSelect.value;
+    const models = ALL_TEXT_MODELS[provider] || [];
+    const currentVal = modelSelect.value;
+    modelSelect.innerHTML = '';
+    models.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = m;
+        modelSelect.appendChild(opt);
     });
+    if (currentVal && models.includes(currentVal)) {
+        modelSelect.value = currentVal;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    const providerSelect = document.getElementById('provider');
+    if (providerSelect) {
+        providerSelect.addEventListener('change', updateTextModels);
+        if (typeof loadPluginSettings !== "undefined" && loadPluginSettings) {
+            if (!document.getElementById('textModel').value) {
+                const firstModel = (ALL_TEXT_MODELS[providerSelect.value] || [])[0];
+                if (firstModel) {
+                    document.getElementById('textModel').value = firstModel;
+                }
+            }
+        }
+    }
+});
 </script>

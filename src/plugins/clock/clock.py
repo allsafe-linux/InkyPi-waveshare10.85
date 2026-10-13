@@ -19,7 +19,7 @@ CLOCK_FACES = [
         "icon": "faces/gradient.png"
     },
     {
-        "name": "Digital Clock",
+        "name": "Flip Clock",
         "primary_color": "#ffffff",
         "secondary_color": "#000000",
         "icon": "faces/digital.png"
@@ -66,8 +66,8 @@ class Clock(BasePlugin):
         try:
             if clock_face == "Gradient Clock":
                 img = self.draw_conic_clock(dimensions, current_time, primary_color, secondary_color)
-            elif clock_face == "Digital Clock":
-                img = self.draw_digital_clock(dimensions, current_time, primary_color, secondary_color)
+            elif clock_face == "Flip Clock":
+                img = self.draw_flip_clock(dimensions, current_time, primary_color, secondary_color)
             elif clock_face == "Divided Clock":
                 img = self.draw_divided_clock(dimensions, current_time, primary_color, secondary_color)
             elif clock_face == "Word Clock":
@@ -77,25 +77,102 @@ class Clock(BasePlugin):
             raise RuntimeError("Failed to display clock.")
         return img
     
-    def draw_digital_clock(self, dimensions, time, primary_color=(255,255,255), secondary_color=(0,0,0)):
-        w,h = dimensions
-        time_str = Clock.format_time(time.hour, time.minute, zero_pad = True)
+    def draw_flip_clock(self, dimensions, time, primary_color=(255,255,255), secondary_color=(0,0,0)):
+        """
+        Static flip clock (split-flap display) effect.
 
-        image = Image.new("RGBA", dimensions, secondary_color+(255,))
-        text = Image.new("RGBA", dimensions, (0, 0, 0, 0))
+        Each digit is rendered as a white card with thick black border and a
+        horizontal split line in the middle, simulating a mechanical flip clock
+        without animation. The middle line has subtle shadows for a 3D flap look.
+        """
+        w, h = dimensions
+        hour_str = f"{time.hour:02d}"
+        minute_str = f"{time.minute:02d}"
 
-        font_size = w * 0.36
-        fnt = get_font("DS-Digital", font_size)
-        text_draw = ImageDraw.Draw(text)
+        # Dark background
+        image = Image.new("RGBA", dimensions, secondary_color + (255,))
+        draw = ImageDraw.Draw(image)
 
-        # time text
-        text_draw.text((w/2, h/2), "00:00", font=fnt, anchor="mm", fill=primary_color +(30,))
-        text_draw.text((w/2, h/2), time_str, font=fnt, anchor="mm", fill=primary_color +(255,))
+        # Layout: 4 cards + colon between card1 and card2
+        margin_x = w * 0.04
+        colon_w = w * 0.05
+        total_card_w = w - 2 * margin_x - colon_w
+        card_w = total_card_w / 4
+        card_h = h * 0.75
+        card_y = (h - card_h) / 2
+        start_x = margin_x
 
-        combined = Image.alpha_composite(image, text)    
+        # Digit font
+        fnt_size = int(card_h * 0.95)  # PATCH: digits almost fill card vertically
+        fnt = get_font("DS-Digital", fnt_size)
 
-        return combined
-        
+        # Build 5 elements: card0, card1, colon, card2, card3
+        positions_and_chars = [
+            (start_x,                        hour_str[0]),
+            (start_x + card_w,               hour_str[1]),
+            ('colon',                        None),
+            (start_x + 2*card_w + colon_w,   minute_str[0]),
+            (start_x + 3*card_w + colon_w,   minute_str[1]),
+        ]
+
+        for entry in positions_and_chars:
+            if entry[0] == 'colon':
+                cx = start_x + 2 * card_w + colon_w / 2
+                dot_r = card_w * 0.05
+                for sign in [-1, 1]:
+                    cy = h / 2 + sign * card_h * 0.18
+                    draw.ellipse(
+                        [cx - dot_r, cy - dot_r, cx + dot_r, cy + dot_r],
+                        fill=primary_color + (255,)
+                    )
+            else:
+                x_pos, ch = entry
+                # Card with thick black border
+                border_w = max(int(card_w * 0.04), 2)
+                draw.rectangle(
+                    [x_pos, card_y, x_pos + card_w, card_y + card_h],
+                    fill=primary_color + (255,),
+                    outline=secondary_color + (255,),
+                    width=border_w
+                )
+                # Digit text
+                cx = x_pos + card_w / 2
+                cy = card_y + card_h / 2
+                draw.text(
+                    (cx, cy), ch, font=fnt, anchor="mm",
+                    fill=secondary_color + (255,)
+                )
+                # Middle split line (the "flap")
+                mid_y = card_y + card_h / 2
+                line_pad = card_w * 0.10
+                line_left = x_pos + line_pad
+                line_right = x_pos + card_w - line_pad
+                # Subtle shadow above (PATCH: thicker)
+                draw.line(
+                    [(line_left, mid_y - 2), (line_right, mid_y - 2)],
+                    fill=(secondary_color[0], secondary_color[1], secondary_color[2], 80),
+                    width=2
+                )
+                # Main dark split line (PATCH: thicker)
+                draw.line(
+                    [(line_left, mid_y), (line_right, mid_y)],
+                    fill=secondary_color + (255,),
+                    width=3
+                )
+                # Subtle shadow below (PATCH: thicker)
+                draw.line(
+                    [(line_left, mid_y + 2), (line_right, mid_y + 2)],
+                    fill=(secondary_color[0], secondary_color[1], secondary_color[2], 60),
+                    width=2
+                )
+                # Tiny "hinge" circles at split ends
+                hinge_r = 2
+                for hx in [line_left - 2, line_right + 2]:
+                    draw.ellipse(
+                        [hx - hinge_r, mid_y - hinge_r, hx + hinge_r, mid_y + hinge_r],
+                        fill=secondary_color + (255,)
+                    )
+        return image
     def draw_conic_clock(self, dimensions, time, primary_color=(219, 50, 70, 255), secondary_color=(0, 0, 0, 255) ):
         width, height = dimensions
         hour_angle, minute_angle = Clock.calculate_clock_angles(time)
