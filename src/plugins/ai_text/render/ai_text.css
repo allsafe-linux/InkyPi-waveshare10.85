@@ -1,6 +1,6 @@
 @font-face {
     font-family: "ChineseDaHei";
-    src: url("file:///usr/share/fonts/truetype/windows/方正大黑_GBK.ttf") format("truetype");
+    src: url("../../static/fonts/方正大黑_GBK.ttf") format("truetype");
 }
 @font-face {
     font-family: "ChineseHei";
